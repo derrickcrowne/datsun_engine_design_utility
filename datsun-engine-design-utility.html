@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Engine Design Utility — Datsun / Nissan</title>
+<link href="https://fonts.googleapis.com/css2?family=Saira+Condensed:wght@500;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#16181c;
+    --panel:#1f2329;
+    --panel-2:#262b32;
+    --line:#363d47;
+    --ink:#d7dae0;
+    --ink-dim:#8b929d;
+    --tach:#ff8a1e;        /* tachometer-needle orange */
+    --tach-dim:#b35f12;
+    --ok:#7fc97f;
+    --warn:#e8c34a;
+    --bad:#e06c5c;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{background:var(--bg);color:var(--ink);font-family:'IBM Plex Mono',ui-monospace,Menlo,Consolas,monospace;font-size:14px;line-height:1.45}
+  ::selection{background:var(--tach);color:#16181c}
+
+  .wrap{max-width:1180px;margin:0 auto;padding:28px 20px 64px}
+
+  header{border-bottom:2px solid var(--tach);padding-bottom:14px;margin-bottom:24px;display:flex;flex-wrap:wrap;align-items:baseline;gap:8px 18px}
+  h1{font-family:'Saira Condensed','Arial Narrow',sans-serif;font-weight:800;font-size:34px;letter-spacing:.04em;text-transform:uppercase;color:#fff}
+  h1 .accent{color:var(--tach)}
+  header .sub{color:var(--ink-dim);font-size:12px;letter-spacing:.06em;text-transform:uppercase}
+
+  .grid{display:grid;grid-template-columns:minmax(330px,420px) 1fr;gap:22px}
+  @media(max-width:880px){.grid{grid-template-columns:1fr}}
+
+  fieldset{border:1px solid var(--line);background:var(--panel);padding:16px 16px 14px;margin-bottom:18px}
+  legend{font-family:'Saira Condensed','Arial Narrow',sans-serif;font-weight:700;font-size:16px;letter-spacing:.1em;text-transform:uppercase;color:var(--tach);padding:0 8px}
+
+  .row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:5px 0}
+  .row label{color:var(--ink);font-size:13px}
+  .row .unit{color:var(--ink-dim);font-size:11px;margin-left:4px}
+  input[type=number],select{
+    background:var(--panel-2);border:1px solid var(--line);color:#fff;
+    font-family:inherit;font-size:14px;padding:6px 8px;width:120px;text-align:right;
+  }
+  select{width:100%;text-align:left;cursor:pointer}
+  .complabel{display:block;font-size:11px;color:var(--ink-dim);margin:9px 0 3px;letter-spacing:.05em;text-transform:uppercase}
+  input[type=number]:focus,select:focus{outline:2px solid var(--tach);outline-offset:1px;border-color:var(--tach)}
+  .hint{color:var(--ink-dim);font-size:11px;margin-top:8px;line-height:1.5}
+  .toggle{display:flex;gap:0;margin:6px 0 2px}
+  .toggle button{flex:1;background:var(--panel-2);border:1px solid var(--line);color:var(--ink-dim);font-family:inherit;font-size:12px;padding:6px 0;cursor:pointer}
+  .toggle button.on{background:var(--tach);border-color:var(--tach);color:#16181c;font-weight:600}
+  .toggle button:focus-visible{outline:2px solid #fff;outline-offset:-2px}
+
+  /* results */
+  .results{border:1px solid var(--line);background:var(--panel)}
+  .results .head{padding:12px 16px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:baseline}
+  .results .head h2{font-family:'Saira Condensed','Arial Narrow',sans-serif;font-weight:700;font-size:16px;letter-spacing:.1em;text-transform:uppercase;color:var(--tach)}
+  .bigstat{display:grid;grid-template-columns:1fr 1fr;border-bottom:1px solid var(--line)}
+  .bigstat>div{padding:16px;border-right:1px solid var(--line)}
+  .bigstat>div:last-child{border-right:none}
+  .bigstat .num{font-size:34px;font-weight:600;color:#fff;letter-spacing:-.01em}
+  .bigstat .num small{font-size:14px;color:var(--ink-dim);font-weight:400}
+  .bigstat .lbl{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-dim);margin-top:2px}
+  table.out{width:100%;border-collapse:collapse}
+  table.out td{padding:7px 16px;border-bottom:1px solid var(--line);font-size:13px}
+  table.out td:last-child{text-align:right;color:#fff}
+  table.out tr:last-child td{border-bottom:none}
+  .flag-ok{color:var(--ok)} .flag-warn{color:var(--warn)} .flag-bad{color:var(--bad)}
+
+  .diagram{border:1px solid var(--line);background:var(--panel);margin-top:18px;padding:10px}
+  .diagram svg{display:block;width:100%;height:auto}
+
+  footer{margin-top:28px;color:var(--ink-dim);font-size:11px;line-height:1.6;border-top:1px solid var(--line);padding-top:12px}
+  a{color:var(--tach)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Engine Design <span class="accent">Utility</span></h1>
+    <span class="sub">Datsun / Nissan · static compression &amp; geometry calculator</span>
+  </header>
+
+  <div class="grid">
+    <div><!-- LEFT: inputs -->
+      <fieldset>
+        <legend>Engine preset</legend>
+        <select id="preset" aria-label="Engine preset"></select>
+        <div class="hint">Presets load commonly-cited factory specs as a starting point. Castings vary and parts get machined — always measure your own components.</div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Component swaps</legend>
+        <label class="complabel" for="headSel">Cylinder head</label>
+        <select id="headSel" aria-label="Cylinder head preset"></select>
+        <label class="complabel" for="pistonSel">Pistons</label>
+        <select id="pistonSel" aria-label="Piston preset"></select>
+        <label class="complabel" for="crankSel">Crankshaft</label>
+        <select id="crankSel" aria-label="Crankshaft preset"></select>
+        <label class="complabel" for="rodSel">Connecting rods</label>
+        <select id="rodSel" aria-label="Connecting rod preset"></select>
+        <label class="complabel" for="blockSel">Block</label>
+        <select id="blockSel" aria-label="Block preset"></select>
+        <div class="hint">Pick a base engine above, then mix and match parts here. Each swap fills only its own fields below. Chamber cc values are nominal for unmilled castings. When swapping to larger pistons, remember to match the head-gasket bore and physically check valve-to-piston clearance — the calculator only does the volume math.</div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Block &amp; rotating assembly</legend>
+        <div class="row"><label for="cyl">Cylinders</label><input id="cyl" type="number" step="1" min="1" value="6"></div>
+        <div class="row"><label for="bore">Bore<span class="unit">mm</span></label><input id="bore" type="number" step="0.01" value="86"></div>
+        <div class="row"><label for="stroke">Stroke<span class="unit">mm</span></label><input id="stroke" type="number" step="0.01" value="79"></div>
+        <div class="row"><label for="rod">Rod length (c-c)<span class="unit">mm</span></label><input id="rod" type="number" step="0.01" value="130.35"></div>
+        <div class="row"><label for="deckh">Block deck height<span class="unit">mm</span></label><input id="deckh" type="number" step="0.01" value="207.85"></div>
+        <div class="row"><label for="pin">Piston pin height<span class="unit">mm</span></label><input id="pin" type="number" step="0.01" value="38.10"></div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Volumes &amp; gasket</legend>
+        <div class="row"><label for="chamber">Head chamber volume<span class="unit">cc</span></label><input id="chamber" type="number" step="0.1" value="44.7"></div>
+        <div class="row"><label for="piston">Piston dome (−) / dish (+)<span class="unit">cc</span></label><input id="piston" type="number" step="0.1" value="0"></div>
+        <div class="row"><label for="gbore">Gasket bore<span class="unit">mm</span></label><input id="gbore" type="number" step="0.01" value="87"></div>
+        <div class="row"><label for="gthk">Gasket compressed thickness<span class="unit">mm</span></label><input id="gthk" type="number" step="0.01" value="1.2"></div>
+        <div class="hint">Dome pistons take volume away from the chamber — enter as a negative number. Dished/valve-relief pistons add volume — enter positive. L-series head swap reference: open chamber (U67 / open A87 / open W58) ≈ 45.2cc; peanut / closed chamber ≈ 41cc. Milled heads will be smaller — cc to confirm.</div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Operating point</legend>
+        <div class="row"><label for="rpm">Engine speed<span class="unit">rpm</span></label><input id="rpm" type="number" step="100" value="7000"></div>
+      </fieldset>
+    </div>
+
+    <div><!-- RIGHT: results -->
+      <div class="results">
+        <div class="head"><h2>Results</h2><span id="presetName" class="sub" style="color:var(--ink-dim);font-size:11px"></span></div>
+        <div class="bigstat">
+          <div><div class="num" id="dispCc">—</div><div class="lbl">Displacement</div></div>
+          <div><div class="num" id="crBig">—</div><div class="lbl">Static compression ratio</div></div>
+        </div>
+        <table class="out"><tbody id="outRows"></tbody></table>
+      </div>
+
+      <div class="diagram">
+        <svg id="xsec" viewBox="0 0 560 360" role="img" aria-label="Cylinder cross-section drawn to scale"></svg>
+      </div>
+    </div>
+  </div>
+
+  <footer>
+    An original, open re-implementation in the spirit of the classic OZDAT.com Engine Design Utility — built fresh, no original code used.
+    All preset figures are commonly-cited reference values; verify against your own measured parts before machining or ordering anything.
+    Static CR only — cam timing (dynamic CR), boost, and combustion-chamber shape are up to you and your cam card.
+  </footer>
+</div>
+
+<script>
+"use strict";
+
+/* ---------- presets: commonly cited reference specs (mm / cc) ---------- */
+const PRESETS = [
+  {name:"— Custom (enter your own) —"},
+
+  {group:"L-series 4-cyl"},
+  {name:"L16 (1.6L, 7.01cc dish, 210 head ~39cc)",  cyl:4, bore:83.0, stroke:73.7, rod:133.0, deckh:207.85, pin:38.1, chamber:39.0, gbore:86, gthk:1.2, dish:7.01, head:"210 open"},
+  {name:"L16 SSS (flat top, 219/A87 closed 41.2cc)",  cyl:4, bore:83.0, stroke:73.7, rod:133.0, deckh:207.85, pin:38.1, chamber:41.2, gbore:86, gthk:1.2, dish:0, head:"219"},
+  {name:"L18 (1.8L, 4.36cc dish, U67 open chamber)",  cyl:4, bore:85.0, stroke:78.0, rod:130.2, deckh:207.85, pin:38.1, chamber:45.2, gbore:87, gthk:1.2, dish:4.36, head:"U67"},
+  {name:"L20B (2.0L, 11.36cc dish, U67/open chamber)", cyl:4, bore:85.0, stroke:86.0, rod:145.9, deckh:227.45, pin:38.1, chamber:45.2, gbore:87, gthk:1.2, dish:11.36, head:"U67"},
+
+  {group:"L-series 6-cyl"},
+  {name:"L24 (2.4L, flat top)",  cyl:6, bore:83.0, stroke:73.7, rod:133.0, deckh:207.85, pin:38.1, chamber:42.6, gbore:85, gthk:1.2, dish:0, head:"E31"},
+  {name:"L26 (2.6L, 7.01cc dish)",  cyl:6, bore:83.0, stroke:79.0, rod:130.2, deckh:207.85, pin:38.1, chamber:44.7, gbore:85, gthk:1.2, dish:7.01, head:"E88 early"},
+  {name:"L28 \u201975\u2013\u201980 (2.8L, 10.9cc dish)",  cyl:6, bore:86.0, stroke:79.0, rod:130.2, deckh:207.85, pin:38.1, chamber:44.7, gbore:88, gthk:1.2, dish:10.9, head:"N42"},
+  {name:"L28 \u201981\u2013\u201983 F54 (2.8L, flat top)",  cyl:6, bore:86.0, stroke:79.0, rod:130.2, deckh:207.85, pin:38.1, chamber:53.6, gbore:88, gthk:1.2, dish:0, head:"P79"},
+  {name:"L28 + LD28 crank \u201c3.0 stroker\u201d", cyl:6, bore:86.0, stroke:83.0, rod:130.2, deckh:207.85, pin:38.1, chamber:44.7, gbore:88, gthk:1.2, dish:0, head:"N42"},
+
+  {group:"A-series (stock pistons: cc your own; deck/rod partly derived)"},
+  {name:"A12 (1.2L)", cyl:4, bore:73.0, stroke:70.0, rod:121.5, deckh:189.4, pin:32.7, chamber:35.0, gbore:75, gthk:1.0, dish:0},
+  {name:"A14 (1.4L, tall block)", cyl:4, bore:76.0, stroke:77.0, rod:133.0, deckh:204.4, pin:32.7, chamber:38.0, gbore:78, gthk:1.0, dish:0},
+  {name:"A15 (1.5L, tall block)", cyl:4, bore:76.0, stroke:82.0, rod:133.0, deckh:204.4, pin:29.8, chamber:38.0, gbore:78, gthk:1.0, dish:0},
+
+  {group:"Z / KA / other"},
+  {name:"Z20E (2.0L, ~13cc dish)",  cyl:4, bore:85.0, stroke:86.0, rod:152.5, deckh:227.45, pin:31.75, chamber:45.0, gbore:87, gthk:1.2, dish:13},
+  {name:"Z22S / early Z22E (2.2L, 9.32cc dish)",  cyl:4, bore:87.0, stroke:92.0, rod:145.9, deckh:227.45, pin:35.5, chamber:45.0, gbore:89, gthk:1.2, dish:9.32},
+  {name:"Z24 (2.4L, 15cc dish)", cyl:4, bore:89.0, stroke:96.0, rod:165.0, deckh:247.0, pin:34.0, chamber:48.0, gbore:91, gthk:1.2, dish:15},
+  {name:"KA24 (2.4L, 2.8cc dish)", cyl:4, bore:89.0, stroke:96.0, rod:165.0, deckh:247.0, pin:34.0, chamber:48.0, gbore:91, gthk:1.2, dish:2.8},
+  {name:"U20 (2.0L roadster \u2014 cc your pistons)", cyl:4, bore:87.2, stroke:83.0, rod:140.0, deckh:0, pin:0, chamber:50.0, gbore:89, gthk:1.2, dish:0},
+];
+
+/* less-certain preset values: deck/pin/rod/chamber are ballpark on some engines.
+   Everything is editable; the footer + hints tell the user to measure. */
+
+const $ = id => document.getElementById(id);
+const fields = ["cyl","bore","stroke","rod","deckh","pin","chamber","piston","gbore","gthk"];
+
+let baseName = "custom spec";
+
+function buildPresetMenu(){
+  const sel = $("preset");
+  let og = null;
+  PRESETS.forEach((p,i)=>{
+    if(p.group){ og = document.createElement("optgroup"); og.label = p.group; sel.appendChild(og); return; }
+    const o = document.createElement("option"); o.value = i; o.textContent = p.name;
+    (og && i>0 ? og : sel).appendChild(o);
+  });
+  sel.addEventListener("change", ()=>{
+    const p = PRESETS[+sel.value];
+    if(!p || !p.bore){ baseName = "custom spec"; $("presetName").textContent = baseName; syncComps(); calc(); return; }
+    ["cyl","bore","stroke","rod","deckh","pin","chamber","gbore","gthk"].forEach(k=>{
+      if(p[k] !== undefined) $(k).value = p[k];
+    });
+    $("piston").value = (p.dish !== undefined) ? p.dish : 0;
+    baseName = p.name;
+    $("presetName").textContent = baseName;
+    syncComps(p.head);
+    calc();
+  });
+}
+
+/* ---------- component swap presets (nominal values \u2014 measure your parts) ---------- */
+const HEADS = [
+  {name:"\u2014 head: keep current \u2014", noop:true},
+  {group:"4-cyl heads"},
+  {name:"210 open (stock L16) \u00b7 ~39cc", chamber:39.0},
+  {name:"210 closed (rare) \u00b7 ~37cc", chamber:37.0},
+  {name:"219 / A87 closed \u00b7 41.2cc", chamber:41.2},
+  {name:"W53 peanut \u00b7 ~41cc", chamber:41.0},
+  {name:"A87 open \u00b7 45.2cc", chamber:45.2},
+  {name:"U67 open \u00b7 45.2cc", chamber:45.2},
+  {name:"W58 open \u00b7 45.2cc", chamber:45.2},
+  {name:"W58 closed \u00b7 ~41cc", chamber:41.0},
+  {group:"6-cyl heads"},
+  {name:"E31 \u00b7 ~42.6cc", chamber:42.6},
+  {name:"E88 early \u00b7 ~44.7cc", chamber:44.7},
+  {name:"E88 late / 260Z \u00b7 ~47.8cc", chamber:47.8},
+  {name:"N42 \u00b7 ~44.7cc", chamber:44.7},
+  {name:"N47 \u00b7 ~44.7cc", chamber:44.7},
+  {name:"P79 \u00b7 ~53.6cc", chamber:53.6},
+  {name:"P90 / P90A \u00b7 ~53.6cc", chamber:53.6},
+  {name:"MN47 \u00b7 ~40.4cc", chamber:40.4},
+];
+const PISTONS = [
+  {name:"\u2014 pistons: keep current \u2014", noop:true},
+  {group:"Stock Nissan"},
+  {name:"L13 / L24 flat top \u00b7 83mm \u00b7 0cc", bore:83.0, pin:38.1, dish:0},
+  {name:"L16 / L26 dished \u00b7 83mm \u00b7 7.01cc", bore:83.0, pin:38.1, dish:7.01},
+  {name:"L18 dished \u00b7 85mm \u00b7 4.36cc", bore:85.0, pin:38.1, dish:4.36},
+  {name:"L20B dished \u00b7 85mm \u00b7 11.36cc", bore:85.0, pin:38.1, dish:11.36},
+  {name:"L28 \u201975\u2013\u201980 dished \u00b7 86mm \u00b7 10.9cc", bore:86.0, pin:38.1, dish:10.9},
+  {name:"L28 \u201981\u2013\u201983 flat top \u00b7 86mm \u00b7 0cc", bore:86.0, pin:38.1, dish:0},
+  {name:"Z22 dished \u00b7 87mm \u00b7 9.32cc", bore:87.0, pin:35.5, dish:9.32},
+  {name:"Z20E dished \u00b7 85mm \u00b7 ~13cc", bore:85.0, pin:31.75, dish:13},
+  {name:"Z24 dished \u00b7 89mm \u00b7 15cc", bore:89.0, pin:34.0, dish:15},
+  {name:"KA24 \u00b7 89mm \u00b7 2.8cc", bore:89.0, pin:34.0, dish:2.8},
+  {group:"Kameari (L6) \u2014 catalog Vol.4"},
+  {name:"Kameari street L24/L26 \u00b7 83mm \u00b7 pin 38.1 \u00b7 +2.1cc", bore:83.0, pin:38.1, dish:2.1},
+  {name:"Kameari street L24/L26/L28 \u00b7 86mm \u00b7 pin 38.1 \u00b7 +2.1cc", bore:86.0, pin:38.1, dish:2.1},
+  {name:"Kameari street L24/L26/L28 \u00b7 87mm \u00b7 pin 38.1 \u00b7 +2.1cc", bore:87.0, pin:38.1, dish:2.1},
+  {name:"Kameari street L30 (L28 rods) \u00b7 88\u201389.5mm \u00b7 pin 38.1 \u00b7 +3.8cc", bore:89.0, pin:38.1, dish:3.8},
+  {name:"Kameari street L30 (133mm \u201cL20\u201d rods) \u00b7 88\u201389.5mm \u00b7 pin 35.5 \u00b7 +3.8cc", bore:89.0, pin:35.5, dish:3.8},
+  {name:"Kameari street L31 (LD28 crank, 133mm rods) \u00b7 88\u201389.5mm \u00b7 pin 33.5 \u00b7 +3.8cc", bore:89.0, pin:33.5, dish:3.8},
+  {name:"Kameari racing L28\u2013L31 (137.5/139.5mm rods) \u00b7 86\u201390mm \u00b7 pin 29.0 \u00b7 +3.8cc", bore:89.0, pin:29.0, dish:3.8},
+  {name:"Kameari racing L32 (85mm crank, 137.5mm rods) \u00b7 88.5\u201389.5mm \u00b7 pin 28.0 \u00b7 +3.8cc", bore:89.0, pin:28.0, dish:3.8},
+  {name:"Kameari turbo L30/L31 (low comp, 22mm pin) \u00b7 89mm \u00b7 pin 32.0 \u00b7 +11.5cc", bore:89.0, pin:32.0, dish:11.5},
+  {group:"Kameari (L4 \u2014 L14/L16/L18)"},
+  {name:"Kameari street L14/L16 \u00b7 83mm \u00b7 pin 38.1 \u00b7 +2.1cc", bore:83.0, pin:38.1, dish:2.1},
+  {name:"Kameari street L14/L16/L18 \u00b7 86mm \u00b7 pin 38.1 \u00b7 +2.1cc", bore:86.0, pin:38.1, dish:2.1},
+  {name:"Kameari street L18 \u00b7 87mm \u00b7 pin 38.1 \u00b7 +2.1cc", bore:87.0, pin:38.1, dish:2.1},
+  {name:"Kameari street L18\u21922.0L (stock rods) \u00b7 88\u201389.5mm \u00b7 pin 38.1 \u00b7 +3.8cc", bore:89.0, pin:38.1, dish:3.8},
+  {name:"Kameari street L18\u21922.0L (133mm rods) \u00b7 88\u201389.5mm \u00b7 pin 35.5 \u00b7 +3.8cc", bore:89.0, pin:35.5, dish:3.8},
+  {name:"Kameari racing L18\u21922.0L (139.5mm rods) \u00b7 86\u201390mm \u00b7 pin 29.0 \u00b7 +3.8cc", bore:89.0, pin:29.0, dish:3.8},
+  {group:"Kameari (A-series) \u2014 catalog Vol.4"},
+  {name:"Kameari A12\u21921300 street \u00b7 77mm \u00b7 pin 32.7 \u00b7 +2.2cc (17.45mm pin)", bore:77.0, pin:32.7, dish:2.2},
+  {name:"Kameari A12 racing \u00b7 77mm \u00b7 pin 32.7 \u00b7 +2.6cc (17.45mm pin)", bore:77.0, pin:32.7, dish:2.6},
+  {name:"Kameari A14\u21921500 \u00b7 77\u201379mm \u00b7 pin 32.7 \u00b7 +2.5cc (19mm pin)", bore:78.0, pin:32.7, dish:2.5},
+  {name:"Kameari A15\u21921600 \u00b7 77\u201379mm \u00b7 pin 29.8 \u00b7 +2.0cc (19mm pin)", bore:78.0, pin:29.8, dish:2.0},
+];
+const CRANKS = [
+  {name:"\u2014 crank: keep current \u2014", noop:true},
+  {group:"Stock Nissan"},
+  {name:"L16 / L24 \u00b7 73.7mm stroke", stroke:73.7},
+  {name:"L18 \u00b7 78.0mm stroke", stroke:78.0},
+  {name:"L26 / L28 \u00b7 79.0mm stroke", stroke:79.0},
+  {name:"LD28 diesel / U20 \u00b7 83.0mm stroke", stroke:83.0},
+  {name:"L20B / Z20 \u00b7 86.0mm stroke", stroke:86.0},
+  {name:"Z22 \u00b7 92.0mm stroke", stroke:92.0},
+  {name:"Z24 / KA24 \u00b7 96.0mm stroke", stroke:96.0},
+  {name:"A12 \u00b7 70.0mm stroke", stroke:70.0},
+  {name:"A14 \u00b7 77.0mm stroke", stroke:77.0},
+  {name:"A15 \u00b7 82.0mm stroke", stroke:82.0},
+  {group:"Kameari (L6) \u2014 catalog Vol.4"},
+  {name:"Kameari 3.1L full-counter \u00b7 83.0mm stroke", stroke:83.0},
+  {name:"Kameari 3.2L full-counter (narrow pin) \u00b7 85.0mm stroke", stroke:85.0},
+];
+const RODS = [
+  {name:"\u2014 rods: keep current \u2014", noop:true},
+  {group:"Stock Nissan"},
+  {name:"L18 / L26 / L28 \u00b7 130.2mm", rod:130.2},
+  {name:"L16 / L24 / \u201cL20\u201d L20A-six \u00b7 133.0mm", rod:133.0},
+  {name:"L13 \u00b7 139.9mm", rod:139.9},
+  {name:"L20B / Z22S / early Z22E \u00b7 145.9mm", rod:145.9},
+  {name:"Late Z22E \u00b7 149.5mm", rod:149.5},
+  {name:"Z20E \u00b7 152.5mm", rod:152.5},
+  {name:"Z24 / KA24 \u00b7 165.0mm", rod:165.0},
+  {group:"Kameari (chromoly / Drag-I)"},
+  {name:"Kameari chromoly \u201cL20 type\u201d \u00b7 133.0mm", rod:133.0},
+  {name:"Kameari Drag-I / chromoly (L31, L32) \u00b7 137.5mm", rod:137.5},
+  {name:"Kameari Drag-I / chromoly (L30, L18 racing) \u00b7 139.5mm", rod:139.5},
+];
+const BLOCKS = [
+  {name:"\u2014 block: keep current \u2014", noop:true},
+  {name:"L13\u2013L18 / L24\u2013L28 \u00b7 207.85mm deck", deckh:207.85},
+  {name:"L20B / Z20 / Z22 / LD28 \u00b7 227.45mm deck", deckh:227.45},
+  {name:"Z24 / KA24 \u00b7 247.45mm deck", deckh:247.45},
+];
+
+function buildComp(id, items, apply){
+  const sel = $(id); let og = null;
+  items.forEach((p,i)=>{
+    if(p.group){ og = document.createElement("optgroup"); og.label = p.group; sel.appendChild(og); return; }
+    const o = document.createElement("option"); o.value = i; o.textContent = p.name;
+    (og && i>0 ? og : sel).appendChild(o);
+  });
+  sel.addEventListener("change", ()=>{
+    const p = items[+sel.value];
+    if(!p || p.noop){ calc(); return; }
+    apply(p);
+    $("presetName").textContent = baseName + " + swaps";
+    calc();
+  });
+}
+function syncComps(headHint){
+  const near = (a,b)=> (a !== undefined) && Math.abs(a-b) < 0.005;
+  const pick = (id, items, pred, hint)=>{
+    let first = 0, hinted = 0;
+    items.forEach((p,i)=>{
+      if(p.group || p.noop || !pred(p)) return;
+      if(!first) first = i;
+      if(hint && !hinted && p.name.indexOf(hint) !== -1) hinted = i;
+    });
+    const s = $(id); if(s) s.value = String(hinted || first || 0);
+  };
+  pick("headSel",   HEADS,   p=>near(p.chamber, v("chamber")), headHint);
+  pick("pistonSel", PISTONS, p=>near(p.bore, v("bore")) && near(p.pin, v("pin")) && near(p.dish, v("piston")));
+  pick("crankSel",  CRANKS,  p=>near(p.stroke, v("stroke")));
+  pick("rodSel",    RODS,    p=>near(p.rod, v("rod")));
+  pick("blockSel",  BLOCKS,  p=>near(p.deckh, v("deckh")));
+}
+
+function v(id){ return parseFloat($(id).value) || 0; }
+const round = (x,d)=> (Math.round(x*10**d)/10**d).toFixed(d);
+
+function calc(){
+  const cyl=v("cyl"), bore=v("bore"), stroke=v("stroke"), rod=v("rod"),
+        deckh=v("deckh"), pin=v("pin"), chamber=v("chamber"), piston=v("piston"),
+        gbore=v("gbore"), gthk=v("gthk"), rpm=v("rpm");
+
+  const areaB = Math.PI/4*bore*bore;            // mm^2
+  const sweptCc = areaB*stroke/1000;            // cc per cylinder
+  const dispCc  = sweptCc*cyl;
+
+  // deck clearance: + means piston below deck at TDC
+  const haveStack = deckh>0 && pin>0 && rod>0;
+  const deckClr = haveStack ? deckh - (stroke/2 + rod + pin) : NaN;
+  const deckVol = haveStack ? areaB*deckClr/1000 : 0;            // cc (can be negative)
+  const gasketVol = Math.PI/4*gbore*gbore*gthk/1000;             // cc
+
+  const clearance = chamber + piston + gasketVol + deckVol;      // cc at TDC
+  const cr = clearance>0 ? (sweptCc+clearance)/clearance : NaN;
+
+  const rodRatio = stroke>0 ? rod/stroke : NaN;
+  const mps = 2*stroke/1000*rpm/60;                              // m/s mean piston speed
+  const quench = haveStack ? deckClr + gthk : NaN;               // mm (flat-top approximation)
+  const ci = dispCc*0.0610237;
+
+  $("dispCc").innerHTML = isFinite(dispCc)&&dispCc>0 ? `${Math.round(dispCc)} <small>cc · ${round(dispCc/1000,2)} L · ${round(ci,0)} ci</small>` : "—";
+  $("crBig").textContent = isFinite(cr)&&cr>0 ? round(cr,2)+" : 1" : "—";
+
+  const flag = (val, okLo, okHi, warnLo, warnHi)=>{
+    if(!isFinite(val)) return "";
+    if(val>=okLo && val<=okHi) return "flag-ok";
+    if(val>=warnLo && val<=warnHi) return "flag-warn";
+    return "flag-bad";
+  };
+
+  const rows = [
+    ["Swept volume / cylinder", isFinite(sweptCc)? round(sweptCc,1)+" cc" : "—"],
+    ["Clearance volume @ TDC", isFinite(clearance)? round(clearance,1)+" cc" : "—",
+       clearance<=0 ? "flag-bad" : ""],
+    ["Head gasket volume", round(gasketVol,1)+" cc"],
+    ["Deck clearance (piston-to-deck)", haveStack ? round(deckClr,2)+" mm"+(deckClr<0?"  (piston ABOVE deck)":"") : "n/a — need deck/rod/pin",
+       haveStack ? (deckClr<0 ? "flag-warn" : "flag-ok") : ""],
+    ["Deck volume", haveStack ? round(deckVol,1)+" cc" : "n/a"],
+    ["Quench / squish distance", isFinite(quench)? round(quench,2)+" mm" : "n/a",
+       isFinite(quench)? flag(quench, 0.9, 1.5, 0.6, 2.5) : ""],
+    ["Rod / stroke ratio", isFinite(rodRatio)? round(rodRatio,3) : "—",
+       isFinite(rodRatio)? flag(rodRatio, 1.6, 2.1, 1.45, 2.4) : ""],
+    ["Bore / stroke ratio", stroke>0 ? round(bore/stroke,3)+(bore>stroke?"  (oversquare)":bore<stroke?"  (undersquare)":"  (square)") : "—"],
+    [`Mean piston speed @ ${rpm} rpm`, isFinite(mps)? round(mps,1)+" m/s ("+round(mps*196.85,0)+" ft/min)" : "—",
+       isFinite(mps)? flag(mps, 0, 20, 0, 23) : ""],
+  ];
+  $("outRows").innerHTML = rows.map(r=>`<tr><td>${r[0]}</td><td class="${r[2]||""}">${r[1]}</td></tr>`).join("");
+
+  drawXsec({bore,stroke,deckClr:haveStack?deckClr:1.0,gthk,chamber,cr});
+}
+
+/* ---------- to-scale-ish cylinder cross-section ---------- */
+function drawXsec(p){
+  const svg = $("xsec");
+  const W=560,H=360;
+  const cx=W*0.36;
+  const span = p.stroke*1.55 + 40;          // mm shown vertically
+  const scale = Math.min((H-70)/span, (W*0.5)/(p.bore*1.6));
+  const bpx = p.bore*scale, spx = p.stroke*scale;
+  const deckY = 78;                          // px: top of block deck
+  const gpx = Math.max(p.gthk*scale, 2);
+  const dpx = p.deckClr*scale;               // piston crown offset below deck (can be <0)
+  const crownY = deckY + dpx;
+  const wall = 16;
+
+  const o = [];
+  o.push(`<rect x="0" y="0" width="${W}" height="${H}" fill="none"/>`);
+
+  // head (with a simple wedge chamber)
+  const headTop = deckY - gpx - 56;
+  o.push(`<path d="M ${cx-bpx/2-wall} ${deckY-gpx} L ${cx-bpx/2-wall} ${headTop} L ${cx+bpx/2+wall} ${headTop} L ${cx+bpx/2+wall} ${deckY-gpx}
+            L ${cx+bpx/2} ${deckY-gpx} Q ${cx} ${deckY-gpx-34} ${cx-bpx/2} ${deckY-gpx} Z"
+            fill="#2b313a" stroke="#4a5260" stroke-width="1.5"/>`);
+  // gasket
+  o.push(`<rect x="${cx-bpx/2-wall}" y="${deckY-gpx}" width="${bpx+wall*2}" height="${gpx}" fill="#7a4a18" stroke="#a86a22" stroke-width="1"/>`);
+  // block walls
+  const blockBot = deckY + spx + 70;
+  o.push(`<rect x="${cx-bpx/2-wall}" y="${deckY}" width="${wall}" height="${blockBot-deckY}" fill="#2b313a" stroke="#4a5260" stroke-width="1.5"/>`);
+  o.push(`<rect x="${cx+bpx/2}" y="${deckY}" width="${wall}" height="${blockBot-deckY}" fill="#2b313a" stroke="#4a5260" stroke-width="1.5"/>`);
+  // bore interior
+  o.push(`<rect x="${cx-bpx/2}" y="${deckY}" width="${bpx}" height="${blockBot-deckY}" fill="#14161a"/>`);
+
+  // piston at TDC
+  const pistH = Math.max(spx*0.45, 26);
+  o.push(`<rect x="${cx-bpx/2+1.5}" y="${crownY}" width="${bpx-3}" height="${pistH}" fill="#3a424e" stroke="#5b6675" stroke-width="1.5"/>`);
+  for(let i=1;i<=3;i++) o.push(`<line x1="${cx-bpx/2+1.5}" y1="${crownY+5*i}" x2="${cx+bpx/2-1.5}" y2="${crownY+5*i}" stroke="#20252c" stroke-width="1.6"/>`);
+  // BDC ghost
+  o.push(`<rect x="${cx-bpx/2+1.5}" y="${crownY+spx}" width="${bpx-3}" height="${pistH}" fill="none" stroke="#3a424e" stroke-width="1.2" stroke-dasharray="4 4"/>`);
+
+  // dims
+  const dim = (x1,y1,x2,y2,label,tx,ty,anchor="start")=>{
+    o.push(`<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="var(--tach)" stroke-width="1.2"/>`);
+    o.push(`<circle cx="${x1}" cy="${y1}" r="2" fill="var(--tach)"/><circle cx="${x2}" cy="${y2}" r="2" fill="var(--tach)"/>`);
+    o.push(`<text x="${tx}" y="${ty}" fill="var(--tach)" font-size="12" font-family="IBM Plex Mono,monospace" text-anchor="${anchor}">${label}</text>`);
+  };
+  // bore dim
+  dim(cx-bpx/2, deckY-gpx-66, cx+bpx/2, deckY-gpx-66, `bore ${round2(p.bore)} mm`, cx, deckY-gpx-72, "middle");
+  // stroke dim
+  const sx = cx+bpx/2+wall+26;
+  dim(sx, crownY, sx, crownY+spx, "", 0,0);
+  o.push(`<text x="${sx+8}" y="${crownY+spx/2}" fill="var(--tach)" font-size="12" font-family="IBM Plex Mono,monospace" dominant-baseline="middle">stroke ${round2(p.stroke)} mm</text>`);
+  // deck clearance callout
+  const dcColor = p.deckClr < 0 ? "var(--warn)" : "var(--ok)";
+  o.push(`<line x1="${cx-bpx/2-wall-10}" y1="${deckY}" x2="${cx-bpx/2-wall-10}" y2="${crownY}" stroke="${dcColor}" stroke-width="1.4"/>`);
+  o.push(`<text x="${cx-bpx/2-wall-16}" y="${Math.min(deckY,crownY)-6}" fill="${dcColor}" font-size="12" font-family="IBM Plex Mono,monospace" text-anchor="end">deck ${round2(p.deckClr)} mm</text>`);
+  // CR badge
+  if(isFinite(p.cr)&&p.cr>0){
+    o.push(`<text x="${W-14}" y="${H-16}" fill="#fff" font-size="20" font-weight="600" font-family="IBM Plex Mono,monospace" text-anchor="end">${(Math.round(p.cr*100)/100).toFixed(2)} : 1</text>`);
+    o.push(`<text x="${W-14}" y="${H-40}" fill="var(--ink-dim)" font-size="11" font-family="IBM Plex Mono,monospace" text-anchor="end">STATIC CR</text>`);
+  }
+  o.push(`<text x="14" y="${H-16}" fill="var(--ink-dim)" font-size="11" font-family="IBM Plex Mono,monospace">cross-section, approx. to scale · dashed = BDC</text>`);
+
+  svg.innerHTML = o.join("");
+  function round2(x){ return (Math.round(x*100)/100).toString(); }
+}
+function round2(x){ return (Math.round(x*100)/100).toString(); }
+
+buildPresetMenu();
+buildComp("headSel",   HEADS,   p=>{ $("chamber").value = p.chamber; });
+buildComp("pistonSel", PISTONS, p=>{ $("bore").value = p.bore; $("pin").value = p.pin; $("piston").value = p.dish; });
+buildComp("crankSel",  CRANKS,  p=>{ $("stroke").value = p.stroke; });
+buildComp("rodSel",    RODS,    p=>{ $("rod").value = p.rod; });
+buildComp("blockSel",  BLOCKS,  p=>{ $("deckh").value = p.deckh; });
+fields.forEach(id=>$(id).addEventListener("input", ()=>{ $("preset").selectedIndex=0; baseName="custom spec"; $("presetName").textContent=baseName; syncComps(); calc(); }));
+["rpm"].forEach(id=>$(id).addEventListener("input", calc));
+$("preset").value = PRESETS.findIndex(p=>p.name && p.name.startsWith("L28 \u201975"));
+$("preset").dispatchEvent(new Event("change"));
+</script>
+</body>
+</html>
